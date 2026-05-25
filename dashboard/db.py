@@ -1,6 +1,6 @@
 """
 Database layer for IHIS Simulation Dashboard.
-Uses SQLAlchemy + PostgreSQL (Neon).
+Uses SQLAlchemy + MySQL (Local).
 """
 
 import os
@@ -18,31 +18,40 @@ Base = declarative_base()
 engine = None
 SessionLocal = None
 
-
 def init_db(database_url: str = None):
     """Initialize database connection and create tables."""
     global engine, SessionLocal, DATABASE_URL
     if database_url:
         DATABASE_URL = database_url
     if not DATABASE_URL:
-        raise ValueError("DATABASE_URL not set. Pass Neon Postgres URL.")
+        raise ValueError("DATABASE_URL not set. Pass local MySQL connection URL.")
 
-    # Neon and other hosted Postgres require sslmode=require
-    # Local Postgres (Docker) does not.
-    if "neon" in DATABASE_URL and "sslmode" not in DATABASE_URL:
-        DATABASE_URL += ("&" if "?" in DATABASE_URL else "?") + "sslmode=require"
+    # Normalize mysql:// to mysql+pymysql:// if driver not specified
+    if DATABASE_URL.startswith("mysql://"):
+        DATABASE_URL = DATABASE_URL.replace("mysql://", "mysql+pymysql://", 1)
 
-    engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+    # Configure connection pooling and encoding optimized for MySQL
+    if DATABASE_URL.startswith("mysql"):
+        if "charset" not in DATABASE_URL:
+            DATABASE_URL += ("&" if "?" in DATABASE_URL else "?") + "charset=utf8mb4"
+        engine = create_engine(
+            DATABASE_URL,
+            pool_pre_ping=True,
+            pool_recycle=3600,
+            pool_size=10,
+            max_overflow=20
+        )
+    else:
+        engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+
     SessionLocal = sessionmaker(bind=engine)
     Base.metadata.create_all(engine)
     return engine
-
 
 def get_session():
     if SessionLocal is None:
         raise RuntimeError("Database not initialized. Call init_db() first.")
     return SessionLocal()
-
 
 # ============================================================
 # Models
@@ -65,7 +74,6 @@ class UploadBatch(Base):
     conditions = relationship("Condition", back_populates="batch", cascade="all, delete-orphan")
     medications = relationship("Medication", back_populates="batch", cascade="all, delete-orphan")
 
-
 class Patient(Base):
     __tablename__ = "patients"
 
@@ -85,7 +93,6 @@ class Patient(Base):
 
     batch = relationship("UploadBatch", back_populates="patients")
 
-
 class Encounter(Base):
     __tablename__ = "encounters"
 
@@ -102,7 +109,6 @@ class Encounter(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     batch = relationship("UploadBatch", back_populates="encounters")
-
 
 class Observation(Base):
     __tablename__ = "observations"
@@ -123,7 +129,6 @@ class Observation(Base):
 
     batch = relationship("UploadBatch", back_populates="observations")
 
-
 class Condition(Base):
     __tablename__ = "conditions"
 
@@ -140,7 +145,6 @@ class Condition(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     batch = relationship("UploadBatch", back_populates="conditions")
-
 
 class Medication(Base):
     __tablename__ = "medications"
@@ -159,7 +163,6 @@ class Medication(Base):
 
     batch = relationship("UploadBatch", back_populates="medications")
 
-
 class Dhis2Data(Base):
     __tablename__ = "dhis2_data"
 
@@ -170,7 +173,6 @@ class Dhis2Data(Base):
     org_unit = Column(String(255))
     value = Column(Float)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-
 
 class SimulationRun(Base):
     __tablename__ = "simulation_runs"

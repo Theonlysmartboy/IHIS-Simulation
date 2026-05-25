@@ -11,8 +11,6 @@ from .db import (
     get_session, UploadBatch, Patient, Encounter,
     Observation, Condition, Medication
 )
-from sqlalchemy.dialects.postgresql import insert as pg_insert
-
 
 FHIR_REQUIRED = {
     "Patient": ["id", "resourceType"],
@@ -24,7 +22,6 @@ FHIR_REQUIRED = {
 
 SUPPORTED_TYPES = set(FHIR_REQUIRED.keys())
 
-
 def validate_fhir_resource(resource: dict) -> bool:
     rtype = resource.get("resourceType", "")
     required = FHIR_REQUIRED.get(rtype, [])
@@ -32,7 +29,6 @@ def validate_fhir_resource(resource: dict) -> bool:
         if field not in resource or resource[field] is None:
             return False
     return True
-
 
 def extract_reference_id(ref: str) -> str:
     if not ref:
@@ -42,7 +38,6 @@ def extract_reference_id(ref: str) -> str:
     if "/" in ref:
         return ref.split("/")[-1]
     return ref
-
 
 def get_coding(codeable_concept: dict, system_prefix: str = "") -> tuple:
     if not codeable_concept:
@@ -56,11 +51,10 @@ def get_coding(codeable_concept: dict, system_prefix: str = "") -> tuple:
         return codings[0].get("code", ""), codings[0].get("display", "")
     return "", ""
 
-
 def parse_synthea_bundle(file_content: str, filename: str) -> dict:
     """
     Parse a Synthea FHIR Bundle JSON and store resources in the database.
-    Uses bulk inserts for speed with remote Postgres.
+    Uses bulk inserts for speed with remote databases.
     """
     data = json.loads(file_content)
 
@@ -200,12 +194,27 @@ def parse_synthea_bundle(file_content: str, filename: str) -> dict:
                 })
                 counts["MedicationRequest"] += 1
 
-        # Bulk insert with ON CONFLICT DO NOTHING
+        # Bulk insert with database-agnostic ON CONFLICT DO NOTHING / INSERT IGNORE
         def bulk_upsert(model, rows):
             if not rows:
                 return
-            stmt = pg_insert(model.__table__).values(rows).on_conflict_do_nothing(index_elements=["id"])
-            session.execute(stmt)
+            dialect_name = session.bind.dialect.name
+            if dialect_name == "mysql":
+                from sqlalchemy.dialects.mysql import insert as mysql_insert
+                stmt = mysql_insert(model.__table__).values(rows)
+                stmt = stmt.on_duplicate_key_update(id=stmt.inserted.id)
+                session.execute(stmt)
+            elif dialect_name == "postgresql":
+                from sqlalchemy.dialects.postgresql import insert as pg_insert
+                stmt = pg_insert(model.__table__).values(rows).on_conflict_do_nothing(index_elements=["id"])
+                session.execute(stmt)
+            else:
+                # Generic fallback for other dialects
+                for row in rows:
+                    try:
+                        session.execute(model.__table__.insert().values(row))
+                    except Exception:
+                        pass
 
         bulk_upsert(Patient, patients)
         bulk_upsert(Encounter, encounters)

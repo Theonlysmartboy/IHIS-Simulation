@@ -332,7 +332,7 @@ if __name__ == "__main__":
         if not url:
             print("\n  No DATABASE_URL set.")
             print("  Set it as environment variable or pass on command line:")
-            print("  DATABASE_URL=postgresql://... python dashboard/app.py\n")
+            print("  DATABASE_URL=mysql+pymysql://... python dashboard/app.py\n")
             print("  Starting without database (upload disabled)...\n")
         else:
             DB_URL = url
