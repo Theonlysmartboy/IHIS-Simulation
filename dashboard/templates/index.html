@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IHIS Simulation Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.1.0/dist/chartjs-plugin-annotation.min.js"></script>
+    <style>
+        :root {
+            --ihis-bg: #f0f4f8;
+            --ihis-card: #ffffff;
+            --ihis-header: #1a3a5c;
+        }
+        body { background: var(--ihis-bg); font-family: 'Segoe UI', system-ui, sans-serif; color: #2c3e50; }
+
+        .dashboard-header {
+            background: #fdf6ec; color: #2c3e50; padding: 1.2rem 0;
+            margin-bottom: 1.5rem; border-bottom: 1px solid #f0e0c4;
+        }
+        .dashboard-header h1 { font-weight: 700; font-size: 1.5rem; color: #1a3a5c; margin: 0; }
+        .dashboard-header .subtitle { opacity: 0.7; font-size: 0.85rem; color: #5a4a3a; margin: 0; }
+
+        .card-s { background: #fff; border: none; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); margin-bottom: 1.25rem; }
+        .card-s .card-header { background: transparent; border-bottom: 1px solid #edf0f4; padding: 0.8rem 1.2rem; font-weight: 600; font-size: 0.92rem; color: var(--ihis-header); }
+        .card-s .card-body { padding: 1.2rem; }
+
+        /* Upload zone */
+        .upload-zone {
+            border: 2px dashed #c5d0dc; border-radius: 12px; padding: 2.5rem;
+            text-align: center; cursor: pointer; transition: all 0.2s; background: #f8fafc;
+        }
+        .upload-zone:hover, .upload-zone.dragover { border-color: #0d6efd; background: #edf3ff; }
+        .upload-zone i { font-size: 2.5rem; color: #94a3b8; }
+        .upload-zone.dragover i { color: #0d6efd; }
+
+        /* Summary cards */
+        .stat-card { display: flex; align-items: center; gap: 0.8rem; padding: 1rem; }
+        .stat-icon { width: 44px; height: 44px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; flex-shrink: 0; }
+        .stat-value { font-size: 1.6rem; font-weight: 700; line-height: 1.1; }
+        .stat-label { font-size: 0.78rem; color: #6c757d; }
+
+        /* Tables */
+        .table-s { font-size: 0.86rem; }
+        .table-s thead { background: #1a3a5c; color: white; }
+        .table-s thead th { font-weight: 600; font-size: 0.76rem; text-transform: uppercase; letter-spacing: 0.4px; border: none; padding: 0.55rem 0.8rem; white-space: nowrap; }
+        .table-s tbody td { padding: 0.5rem 0.8rem; vertical-align: middle; }
+
+        .badge-pass { background: #d1f2e0; color: #0f5132; font-weight: 600; padding: 0.25em 0.6em; border-radius: 5px; font-size: 0.76rem; }
+        .badge-fail { background: #f8d7da; color: #842029; font-weight: 600; padding: 0.25em 0.6em; border-radius: 5px; font-size: 0.76rem; }
+        .badge-warn { background: #fff3cd; color: #664d03; font-weight: 600; padding: 0.25em 0.6em; border-radius: 5px; font-size: 0.76rem; }
+        .badge-info { background: #e8eef4; color: #3a5a7c; font-weight: 600; padding: 0.25em 0.6em; border-radius: 5px; font-size: 0.76rem; }
+
+        .chart-wrap { position: relative; height: 250px; }
+
+        /* Simulation config */
+        .sim-config label { font-size: 0.82rem; font-weight: 600; color: #4a5568; }
+        .sim-config input { max-width: 100px; }
+
+        .btn-sim { background: #1a3a5c; color: white; border: none; border-radius: 8px; padding: 0.5rem 1.5rem; font-weight: 600; }
+        .btn-sim:hover { background: #244d73; color: white; }
+        .btn-sim:disabled { opacity: 0.5; }
+
+        .btn-clear { font-size: 0.8rem; }
+
+        #uploadLog { max-height: 150px; overflow-y: auto; font-size: 0.82rem; }
+        #uploadLog .log-item { padding: 0.3rem 0; border-bottom: 1px solid #f0f0f0; }
+
+        .footer { text-align: center; padding: 1.2rem 0; color: #94a3b8; font-size: 0.76rem; }
+        .spin { display: inline-block; animation: spin 1s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Hide sections until data is loaded */
+        .results-section { display: none; }
+        .results-section.visible { display: block; }
+        .no-data-section.hidden { display: none; }
+    </style>
+</head>
+<body>
+
+<div class="dashboard-header">
+    <div class="container d-flex justify-content-between align-items-center">
+        <div>
+            <h1>IHIS Simulation Dashboard</h1>
+        </div>
+        <div class="d-flex gap-2 align-items-center">
+            <button class="btn btn-sm" style="background:#e8f4e8;color:#198754;font-weight:600;border-radius:8px;" onclick="importFhirServer(this)" id="btnFhir">
+                <i class="bi bi-cloud-download"></i> FHIR Test Server
+            </button>
+            <button class="btn btn-sm" style="background:#fff3e0;color:#e65100;font-weight:600;border-radius:8px;" onclick="importDhis2(this)" id="btnDhis2">
+                <i class="bi bi-cloud-download"></i> DHIS2 Demo
+            </button>
+            <a href="/samples" class="btn btn-sm" style="background:#1a3a5c;color:white;font-weight:600;border-radius:8px;">
+                <i class="bi bi-collection"></i> Synthea Data
+            </a>
+            <button class="btn btn-outline-danger btn-sm" onclick="clearData()" title="Clear all data" style="border-radius:8px;">
+                <i class="bi bi-trash3"></i>
+            </button>
+        </div>
+    </div>
+</div>
+
+<input type="file" id="fileInput" multiple accept=".json" style="display:none" onchange="handleFiles(this.files)">
+
+<div class="container">
+
+    <!-- Upload progress (hidden until uploading) -->
+    <div id="uploadLog" class="mb-3"></div>
+
+    <!-- Simulation config + data counts in one compact row -->
+    <div class="row g-3 mb-4">
+        <div class="col-lg-5">
+            <div class="card-s">
+                <div class="card-header"><i class="bi bi-sliders me-2"></i>Simulation Parameters</div>
+                <div class="card-body sim-config">
+                    <div class="d-flex gap-3 align-items-end">
+                        <div>
+                            <label>Arrival Rate (req/s)</label>
+                            <input type="number" class="form-control form-control-sm" id="arrivalRate" value="48" min="1" max="500">
+                        </div>
+                        <div>
+                            <label>Servers (c)</label>
+                            <input type="number" class="form-control form-control-sm" id="numServers" value="3" min="1" max="50">
+                        </div>
+                        <div class="flex-grow-1">
+                            <button class="btn btn-sim w-100" id="btnSimulate" onclick="runSimulation()" disabled>
+                                <i class="bi bi-play-fill"></i> Run
+                            </button>
+                        </div>
+                    </div>
+                    <div id="simStatus" class="text-center mt-2" style="font-size:0.82rem;"></div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-7">
+            <div class="card-s">
+                <div class="card-header"><i class="bi bi-database me-2"></i>Uploaded Data</div>
+                <div class="card-body p-0">
+                    <table class="table table-s mb-0">
+                        <tbody>
+                            <tr>
+                                <td>Patients</td><td class="fw-bold text-end" id="cntPatients">0</td>
+                                <td>Encounters</td><td class="fw-bold text-end" id="cntEncounters">0</td>
+                                <td>Observations</td><td class="fw-bold text-end" id="cntObservations">0</td>
+                            </tr>
+                            <tr>
+                                <td>Conditions</td><td class="fw-bold text-end" id="cntConditions">0</td>
+                                <td>Medications</td><td class="fw-bold text-end" id="cntMedications">0</td>
+                                <td class="fw-bold">Total</td><td class="fw-bold text-end" id="cntTotal">0</td>
+                            </tr>
+                            <tr style="background:#f8fafc;">
+                                <td class="fw-bold" colspan="3">FHIR Compliance</td>
+                                <td class="fw-bold text-end" id="cntCompliance">0%</td>
+                                <td class="fw-bold">DHIS2 Indicators</td>
+                                <td class="fw-bold text-end" id="cntDhis2">0</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- DHIS2 INDICATORS PANEL (shown when DHIS2 data is imported) -->
+    <div class="card-s mb-4" id="dhis2Panel" style="display:none;">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <div>
+                <i class="bi bi-graph-up-arrow me-2" style="color:#e65100;"></i>
+                DHIS2 Aggregated Health Indicators
+            </div>
+            <span class="badge" style="background:#fff3e0;color:#e65100;font-weight:600;" id="dhis2Source">Sierra Leone Demo</span>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-s mb-0" id="dhis2Table">
+                    <thead id="dhis2Thead"></thead>
+                    <tbody id="dhis2Tbody"></tbody>
+                </table>
+            </div>
+            <div class="px-3 py-2" style="background:#fafbfc;border-top:1px solid #edf0f4;font-size:0.78rem;color:#6c757d;">
+                <i class="bi bi-info-circle"></i> Source: DHIS2 demonstration database via REST API. Aggregated facility and population-level indicators for cross-tier interoperability testing.
+            </div>
+        </div>
+    </div>
+
+    <!-- NO DATA MESSAGE -->
+    <div class="no-data-section text-center py-5" id="noDataMsg">
+        <i class="bi bi-inbox" style="font-size:3rem; color:#c5d0dc;"></i>
+        <p class="mt-2 text-muted">Upload FHIR data or import from sample datasets to get started</p>
+        <a href="/samples" class="btn btn-sim mt-2"><i class="bi bi-collection"></i> Browse Sample Data</a>
+    </div>
+
+    <!-- RESULTS (hidden until simulation runs) -->
+    <div class="results-section" id="resultsSection">
+
+        <!-- Summary Cards -->
+        <div class="row g-3 mb-4" id="summaryCards">
+            <div class="col-md-3">
+                <div class="card-s"><div class="stat-card">
+                    <div class="stat-icon" style="background:#e8f0fe;color:#0d6efd;"><i class="bi bi-speedometer2"></i></div>
+                    <div><div class="stat-value" id="statResponse">--</div><div class="stat-label">Avg Response (ms)</div></div>
+                </div></div>
+            </div>
+            <div class="col-md-3">
+                <div class="card-s"><div class="stat-card">
+                    <div class="stat-icon" style="background:#d1f2e0;color:#198754;"><i class="bi bi-arrow-up-right"></i></div>
+                    <div><div class="stat-value" id="statThroughput">--</div><div class="stat-label">Throughput (TPS)</div></div>
+                </div></div>
+            </div>
+            <div class="col-md-3">
+                <div class="card-s"><div class="stat-card">
+                    <div class="stat-icon" style="background:#fff3cd;color:#e8a317;"><i class="bi bi-shield-check"></i></div>
+                    <div><div class="stat-value" id="statAvail">--</div><div class="stat-label">Availability (%)</div></div>
+                </div></div>
+            </div>
+            <div class="col-md-3">
+                <div class="card-s"><div class="stat-card">
+                    <div class="stat-icon" style="background:#e0f2fe;color:#0891b2;"><i class="bi bi-check2-all"></i></div>
+                    <div><div class="stat-value" id="statFhir">--</div><div class="stat-label">FHIR Compliance (%)</div></div>
+                </div></div>
+            </div>
+        </div>
+
+        <!-- Charts -->
+        <div class="row g-3 mb-4">
+            <div class="col-lg-4">
+                <div class="card-s"><div class="card-header">Response Time (ms)</div>
+                <div class="card-body"><div class="chart-wrap"><canvas id="chartResponse"></canvas></div></div></div>
+            </div>
+            <div class="col-lg-4">
+                <div class="card-s"><div class="card-header">Throughput (TPS)</div>
+                <div class="card-body"><div class="chart-wrap"><canvas id="chartThroughput"></canvas></div></div></div>
+            </div>
+            <div class="col-lg-4">
+                <div class="card-s"><div class="card-header">Availability (%)</div>
+                <div class="card-body"><div class="chart-wrap"><canvas id="chartAvail"></canvas></div></div></div>
+            </div>
+        </div>
+
+        <!-- Tables -->
+        <div class="row g-3 mb-4">
+            <div class="col-lg-6">
+                <div class="card-s"><div class="card-header">Horizontal Scaling Analysis</div>
+                <div class="card-body p-0">
+                    <table class="table table-s mb-0">
+                        <thead><tr><th>Servers</th><th>Capacity</th><th>Utilisation</th><th>Wait</th><th>Response</th><th>Status</th></tr></thead>
+                        <tbody id="scalingBody"></tbody>
+                    </table>
+                </div></div>
+            </div>
+            <div class="col-lg-6">
+                <div class="card-s"><div class="card-header">FHIR R4 Compliance per Resource Type</div>
+                <div class="card-body p-0">
+                    <table class="table table-s mb-0">
+                        <thead><tr><th>Resource Type</th><th>Format</th><th>Compliance</th><th>Status</th></tr></thead>
+                        <tbody id="fhirBody"></tbody>
+                    </table>
+                </div></div>
+            </div>
+        </div>
+
+        <!-- Scenario Details -->
+        <div class="card-s mb-4">
+            <div class="card-header">Scenario Details</div>
+            <div class="card-body p-0" id="scenarioDetails"></div>
+        </div>
+    </div>
+</div>
+
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+// ============================================================
+// State
+// ============================================================
+let simResults = null;
+let charts = {};
+
+// ============================================================
+// Upload handling
+// ============================================================
+// Upload zone removed — file input is triggered from nav button
+
+async function handleFiles(files) {
+    const log = document.getElementById('uploadLog');
+    const jsonFiles = [...files].filter(f => f.name.endsWith('.json'));
+    if (!jsonFiles.length) { log.innerHTML = '<div class="text-danger">No JSON files selected</div>'; return; }
+
+    const total = jsonFiles.length;
+    let completed = 0;
+    let results = [];
+    const messages = [
+        'Processing FHIR bundles...',
+        'Validating resources...',
+        'Please hang tight, almost there...',
+        'Writing to database...',
+        'Still working, large files take a moment...',
+    ];
+
+    function updateProgress() {
+        const pct = Math.round((completed / total) * 100);
+        const msg = completed < total ? messages[Math.min(Math.floor(completed / Math.max(1, Math.ceil(total/5))), messages.length-1)] : 'Done!';
+        log.innerHTML = '<div class="mb-2" style="font-size:0.82rem;color:#4a5568;">' +
+            '<div class="d-flex justify-content-between mb-1"><span><i class="bi bi-arrow-repeat spin"></i> ' + msg + '</span><span>' + completed + ' / ' + total + '</span></div>' +
+            '<div class="progress" style="height:8px;"><div class="progress-bar bg-primary progress-bar-striped progress-bar-animated" style="width:' + pct + '%"></div></div></div>';
+    }
+
+    updateProgress();
+
+    // Upload files in batches of 5 for speed + progress feedback
+    const batchSize = 5;
+    for (let i = 0; i < jsonFiles.length; i += batchSize) {
+        const batch = jsonFiles.slice(i, i + batchSize);
+        const fd = new FormData();
+        batch.forEach(f => fd.append('files', f));
+
+        try {
+            const resp = await fetch('/upload', { method: 'POST', body: fd });
+            const data = await resp.json();
+            if (data.uploads) results.push(...data.uploads);
+        } catch (e) {
+            batch.forEach(f => results.push({ filename: f.name, error: e.message }));
+        }
+        completed += batch.length;
+        updateProgress();
+    }
+
+    // Show results
+    let html = '';
+    let okCount = 0, errCount = 0, totalRes = 0;
+    for (const u of results) {
+        if (u.error) {
+            errCount++;
+            html += '<div class="log-item text-danger"><i class="bi bi-x-circle"></i> ' + (u.filename||'') + ': ' + u.error + '</div>';
+        } else {
+            okCount++;
+            totalRes += u.total_resources || 0;
+        }
+    }
+    html = '<div class="mb-2 fw-semibold" style="font-size:0.85rem;color:#198754;"><i class="bi bi-check-circle-fill"></i> ' +
+        okCount + ' files uploaded &middot; ' + totalRes.toLocaleString() + ' resources processed' +
+        (errCount ? ' &middot; <span class="text-danger">' + errCount + ' errors</span>' : '') + '</div>' + html;
+    log.innerHTML = html;
+    refreshDataSummary();
+}
+
+async function refreshDataSummary() {
+    try {
+        const resp = await fetch('/api/data-summary');
+        const d = await resp.json();
+        document.getElementById('cntPatients').textContent = (d.patients || 0).toLocaleString();
+        document.getElementById('cntEncounters').textContent = (d.encounters || 0).toLocaleString();
+        document.getElementById('cntObservations').textContent = (d.observations || 0).toLocaleString();
+        document.getElementById('cntConditions').textContent = (d.conditions || 0).toLocaleString();
+        document.getElementById('cntMedications').textContent = (d.medications || 0).toLocaleString();
+        document.getElementById('cntTotal').textContent = (d.total || 0).toLocaleString();
+        document.getElementById('cntCompliance').textContent = (d.fhir_compliance_pct || 0) + '%';
+        document.getElementById('btnSimulate').disabled = !d.has_data;
+
+        // Show/hide no-data message based on actual data
+        if (d.has_data) {
+            document.getElementById('noDataMsg').classList.add('hidden');
+        } else {
+            document.getElementById('noDataMsg').classList.remove('hidden');
+            document.getElementById('resultsSection').classList.remove('visible');
+        }
+
+        // Refresh DHIS2 panel
+        renderDhis2();
+    } catch(e) {}
+}
+
+async function renderDhis2() {
+    try {
+        const resp = await fetch('/api/dhis2-indicators');
+        const d = await resp.json();
+        const panel = document.getElementById('dhis2Panel');
+        if (!d.indicators || !d.indicators.length) {
+            panel.style.display = 'none';
+            return;
+        }
+        panel.style.display = 'block';
+
+        // Build header
+        let thead = '<tr><th>Indicator</th>';
+        for (const p of d.periods) thead += '<th class="text-end">' + formatPeriod(p) + '</th>';
+        thead += '<th class="text-end">Avg</th><th class="text-end">Trend</th></tr>';
+        document.getElementById('dhis2Thead').innerHTML = thead;
+
+        // Build rows
+        let tbody = '';
+        for (const ind of d.indicators) {
+            tbody += '<tr><td><strong>' + escapeHtml(ind.name) + '</strong><br><small class="text-muted">' + escapeHtml(ind.org_unit || '') + '</small></td>';
+            for (const v of ind.values) {
+                tbody += '<td class="text-end">' + (v !== null && v !== undefined ? Number(v).toFixed(1) : '<span class="text-muted">—</span>') + '</td>';
+            }
+            tbody += '<td class="text-end"><strong>' + (ind.avg !== null ? ind.avg.toFixed(1) : '—') + '</strong></td>';
+            tbody += '<td class="text-end">' + trendIcon(ind.values) + '</td></tr>';
+        }
+        document.getElementById('dhis2Tbody').innerHTML = tbody;
+    } catch(e) {}
+}
+
+function formatPeriod(p) {
+    if (p && p.length === 6) return p.substring(0,4) + '-' + p.substring(4);
+    return p;
+}
+
+function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function trendIcon(values) {
+    const nums = values.filter(v => v !== null && v !== undefined);
+    if (nums.length < 2) return '<span class="text-muted">—</span>';
+    const first = nums[0], last = nums[nums.length - 1];
+    if (last > first * 1.05) return '<i class="bi bi-arrow-up-right text-success"></i>';
+    if (last < first * 0.95) return '<i class="bi bi-arrow-down-right text-danger"></i>';
+    return '<i class="bi bi-arrow-right text-muted"></i>';
+}
+
+// ============================================================
+// Simulation
+// ============================================================
+async function runSimulation() {
+    const btn = document.getElementById('btnSimulate');
+    const status = document.getElementById('simStatus');
+    btn.disabled = true;
+    status.innerHTML = '<span class="text-muted"><i class="bi bi-hourglass-split"></i> Running simulation...</span>';
+
+    try {
+        const resp = await fetch('/simulate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                arrival_rate: parseInt(document.getElementById('arrivalRate').value) || 48,
+                num_servers: parseInt(document.getElementById('numServers').value) || 3,
+            })
+        });
+        simResults = await resp.json();
+
+        if (simResults.error) {
+            status.innerHTML = '<span class="text-danger">' + simResults.error + '</span>';
+            btn.disabled = false;
+            return;
+        }
+
+        status.innerHTML = '<span class="text-success"><i class="bi bi-check-circle"></i> Complete</span>';
+        renderResults();
+    } catch(e) {
+        status.innerHTML = '<span class="text-danger">Error: ' + e.message + '</span>';
+    }
+    btn.disabled = false;
+}
+
+// ============================================================
+// Render results
+// ============================================================
+function renderResults() {
+    const R = simResults;
+    const s1 = R.scenario_1, s2 = R.scenario_2, s3 = R.scenario_3;
+
+    document.getElementById('noDataMsg').classList.add('hidden');
+    document.getElementById('resultsSection').classList.add('visible');
+
+    // Summary cards
+    document.getElementById('statResponse').textContent = s1.avg_response_ms;
+    document.getElementById('statThroughput').textContent = s1.throughput_tps;
+    document.getElementById('statAvail').textContent = s1.availability_pct;
+    document.getElementById('statFhir').textContent = R.fhir_compliance_pct;
+
+    // Color code summary values
+    colorStat('statResponse', s1.avg_response_ms <= 200);
+    colorStat('statThroughput', s1.throughput_tps >= 50);
+    colorStat('statAvail', s1.availability_pct >= 99.5);
+    colorStat('statFhir', R.fhir_compliance_pct >= 98);
+
+    // Charts
+    const labels = ['Baseline', 'Surge', 'Scaling'];
+    renderBarChart('chartResponse', labels,
+        [s1.avg_response_ms, s2.avg_response_ms ? Math.min(s2.avg_response_ms, 300) : 0, s3.avg_response_ms],
+        [s1.avg_response_ms <= 200 ? '#198754' : '#dc3545', '#dc3545', s3.avg_response_ms <= 200 ? '#198754' : '#dc3545'],
+        200, '#dc3545', '200ms max', 'ms', 0, 320
+    );
+    renderBarChart('chartThroughput', labels,
+        [s1.throughput_tps, 0, s3.throughput_tps],
+        [s1.throughput_tps >= 50 ? '#198754' : '#ffc107', '#6c757d', s3.throughput_tps >= 50 ? '#198754' : '#ffc107'],
+        50, '#198754', '50 TPS min', 'TPS'
+    );
+    renderBarChart('chartAvail', labels,
+        [s1.availability_pct, 0, s3.availability_pct],
+        [s1.availability_pct >= 99.5 ? '#198754' : '#dc3545', '#6c757d', s3.availability_pct >= 99.5 ? '#198754' : '#dc3545'],
+        99.5, '#fd7e14', '99.5% min', '%', 88, 100.5
+    );
+
+    // Scaling table
+    let shtml = '';
+    for (const r of R.scaling_table) {
+        const badge = r.system_stable ? '<span class="badge-pass">STABLE</span>' : '<span class="badge-fail">UNSTABLE</span>';
+        const wait = r.system_stable ? (r.avg_queue_wait_ms + ' ms') : '<span class="text-danger fw-bold">&infin;</span>';
+        const resp = r.system_stable ? (r.avg_response_time_ms + ' ms') : '<span class="text-danger fw-bold">&infin;</span>';
+        shtml += '<tr><td><strong>' + r.servers + '</strong></td><td>' + r.total_capacity_tps + ' TPS</td><td>' + r.utilisation.toFixed(2) + '</td><td>' + wait + '</td><td>' + resp + '</td><td>' + badge + '</td></tr>';
+    }
+    document.getElementById('scalingBody').innerHTML = shtml;
+
+    // FHIR table
+    let fhtml = '';
+    for (const f of R.fhir_systems) {
+        const badge = f.passes_threshold ? '<span class="badge-pass">PASS</span>' : '<span class="badge-fail">FAIL</span>';
+        const bar = '<div class="d-flex align-items-center gap-2"><div class="progress flex-grow-1" style="height:5px;max-width:100px;"><div class="progress-bar ' + (f.passes_threshold ? 'bg-success' : 'bg-danger') + '" style="width:' + f.compliance_rate_pct + '%"></div></div><span class="fw-bold" style="font-size:0.83rem;">' + f.compliance_rate_pct + '%</span></div>';
+        fhtml += '<tr><td><strong>' + f.system_name + '</strong></td><td class="text-muted">' + f.data_format + '</td><td>' + bar + '</td><td>' + badge + '</td></tr>';
+    }
+    document.getElementById('fhirBody').innerHTML = fhtml;
+
+    // Scenario details
+    let dhtml = '<div class="accordion" id="scenAcc">';
+    const scenarios = [
+        { key: 'scenario_1', label: 'Scenario 1: Baseline Load', data: s1 },
+        { key: 'scenario_2', label: 'Scenario 2: Peak Surge', data: s2 },
+        { key: 'scenario_3', label: 'Scenario 3: Horizontal Scaling', data: s3 },
+    ];
+    scenarios.forEach((sc, i) => {
+        const d = sc.data;
+        const stable = d.system_stable;
+        const badge = stable ? '<span class="badge-pass ms-2" style="font-size:0.7rem;">STABLE</span>' : '<span class="badge-fail ms-2" style="font-size:0.7rem;">UNSTABLE</span>';
+        let rows = '';
+        if (d.avg_response_ms != null) rows += metricRow('Avg Response Time', d.avg_response_ms + ' ms', '<= 200 ms', d.avg_response_ms <= 200);
+        if (d.throughput_tps != null) rows += metricRow('Throughput', d.throughput_tps + ' TPS', '>= 50 TPS', d.throughput_tps >= 50);
+        if (d.availability_pct != null) rows += metricRow('Availability', d.availability_pct + '%', '>= 99.5%', d.availability_pct >= 99.5);
+        if (d.failure_rate_pct != null) rows += metricRow('Failure Rate', d.failure_rate_pct + '%', '<= 1%', d.failure_rate_pct <= 1);
+        if (d.utilisation != null) rows += metricRow('Utilisation', d.utilisation.toFixed(4), '< 1.0', d.utilisation < 1.0);
+        if (d.wait_reduction_pct != null) rows += metricRow('Wait Reduction', d.wait_reduction_pct + '%', '>= 50%', d.wait_reduction_pct >= 50);
+        if (d.arrival_rate != null) rows += '<tr><td>Arrival Rate</td><td><strong>' + d.arrival_rate + ' req/s</strong></td><td></td><td><span class="badge-info">CONFIG</span></td></tr>';
+        if (d.num_servers != null) rows += '<tr><td>Servers</td><td><strong>' + d.num_servers + '</strong></td><td></td><td><span class="badge-info">CONFIG</span></td></tr>';
+
+        dhtml += '<div class="accordion-item border-0"><h2 class="accordion-header"><button class="accordion-button collapsed" style="font-weight:600;font-size:0.9rem;padding:0.7rem 1.2rem;" data-bs-toggle="collapse" data-bs-target="#sc' + i + '">' + sc.label + badge + '</button></h2>';
+        dhtml += '<div id="sc' + i + '" class="accordion-collapse collapse" data-bs-parent="#scenAcc"><div class="accordion-body p-0"><table class="table table-s mb-0"><thead><tr><th>Metric</th><th>Value</th><th>Threshold</th><th>Status</th></tr></thead><tbody>' + rows + '</tbody></table></div></div></div>';
+    });
+    dhtml += '</div>';
+    document.getElementById('scenarioDetails').innerHTML = dhtml;
+}
+
+function metricRow(name, val, thresh, pass) {
+    const badge = pass ? '<span class="badge-pass">PASS</span>' : '<span class="badge-fail">FAIL</span>';
+    return '<tr><td>' + name + '</td><td><strong>' + val + '</strong></td><td class="text-muted">' + thresh + '</td><td>' + badge + '</td></tr>';
+}
+
+function colorStat(id, pass) {
+    document.getElementById(id).style.color = pass ? '#198754' : '#dc3545';
+}
+
+function renderBarChart(canvasId, labels, values, colors, threshVal, threshColor, threshLabel, unit, yMin, yMax) {
+    if (charts[canvasId]) charts[canvasId].destroy();
+    charts[canvasId] = new Chart(document.getElementById(canvasId), {
+        type: 'bar',
+        data: { labels, datasets: [{ data: values, backgroundColor: colors, borderRadius: 5, maxBarThickness: 50 }] },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                annotation: { annotations: { th: {
+                    type: 'line', yMin: threshVal, yMax: threshVal,
+                    borderColor: threshColor, borderWidth: 2, borderDash: [6, 3],
+                    label: { display: true, content: threshLabel, position: 'start', backgroundColor: threshColor, font: { size: 10 }, padding: 3 }
+                }}}
+            },
+            scales: {
+                y: { beginAtZero: yMin == null, min: yMin, max: yMax, title: { display: true, text: unit, font: { size: 11, weight: 'bold' } }, grid: { color: '#f0f0f0' } },
+                x: { ticks: { font: { size: 10 } }, grid: { display: false } }
+            }
+        }
+    });
+}
+
+// ============================================================
+// Clear data
+// ============================================================
+async function clearData() {
+    if (!confirm('Clear all uploaded data and results?')) return;
+    await fetch('/api/clear', { method: 'POST' });
+    simResults = null;
+    document.getElementById('resultsSection').classList.remove('visible');
+    document.getElementById('noDataMsg').classList.remove('hidden');
+    document.getElementById('uploadLog').innerHTML = '';
+    refreshDataSummary();
+}
+
+async function importFhirServer(btn) {
+    const orig = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Fetching...';
+    showToast('Importing from HAPI FHIR server...', 'info');
+    try {
+        const resp = await fetch('/api/import-fhir-server');
+        const data = await resp.json();
+        if (data.error) {
+            showToast('FHIR import failed: ' + data.error, 'danger');
+        } else {
+            showToast(`Imported ${data.total_resources} FHIR resources (${data.compliance_pct}% valid)`, 'success');
+            refreshDataSummary();
+        }
+    } catch(e) {
+        showToast('FHIR import failed: ' + e.message, 'danger');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = orig;
+    }
+}
+
+async function importDhis2(btn) {
+    const orig = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Fetching...';
+    showToast('Importing from DHIS2 demo...', 'info');
+    try {
+        const resp = await fetch('/api/import-dhis2');
+        const data = await resp.json();
+        if (data.error) {
+            showToast('DHIS2 import failed: ' + data.error, 'danger');
+        } else {
+            showToast(`Imported ${data.total_imported} DHIS2 indicators (${data.indicators} types, ${data.periods} periods)`, 'success');
+            refreshDataSummary();
+        }
+    } catch(e) {
+        showToast('DHIS2 import failed: ' + e.message, 'danger');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = orig;
+    }
+}
+
+function showToast(message, type) {
+    const log = document.getElementById('uploadLog');
+    const color = type === 'success' ? 'success' : type === 'danger' ? 'danger' : 'primary';
+    const icon = type === 'success' ? 'check-circle' : type === 'danger' ? 'x-circle' : 'info-circle';
+    log.innerHTML = `<div class="alert alert-${color} py-2 px-3 d-flex align-items-center gap-2" style="font-size:0.85rem;">
+        <i class="bi bi-${icon}"></i> ${message}
+    </div>`;
+    if (type !== 'danger') {
+        setTimeout(() => { log.innerHTML = ''; }, 5000);
+    }
+}
+
+// Initial load
+refreshDataSummary();
+</script>
+</body>
+</html>

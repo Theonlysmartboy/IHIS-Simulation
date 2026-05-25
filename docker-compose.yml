@@ -1,0 +1,15 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: ihis-postgres
+    environment:
+      POSTGRES_USER: ihis
+      POSTGRES_PASSWORD: ihis_dev
+      POSTGRES_DB: ihis
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:

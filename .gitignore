@@ -1,0 +1,9 @@
+.env
+__pycache__/
+*.pyc
+*.db
+dashboard/uploads/
+synthea-with-dependencies.jar
+output/
+java17/
+openjdk17.zip
